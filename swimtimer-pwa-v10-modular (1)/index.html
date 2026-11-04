@@ -1,0 +1,469 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#090d16" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <link rel="manifest" href="./manifest.json" />
+  <link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png" />
+  <link rel="apple-touch-icon" href="./icon-192.png" />
+  <title>SwimTimer v10 (Modular)</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <link rel="stylesheet" href="./css/styles.css" />
+</head>
+<body class="min-h-screen flex flex-col pb-10">
+
+  <!-- FULLSCREEN START OVERLAY -->
+  <div id="startOverlay" class="fixed inset-0 z-50 hidden flex-col items-center justify-center p-6 text-center transition-colors duration-75">
+    <div id="overlayRoleBadge" class="mb-4 px-3 py-1 rounded-full bg-black/30 border border-white/20 text-xs font-extrabold uppercase tracking-widest">
+      SWIMMER MODE
+    </div>
+    <div id="overlayStatus" class="text-5xl md:text-7xl font-black tracking-tight uppercase drop-shadow-md">
+      GET READY
+    </div>
+    <div id="overlayCountdown" class="text-8xl md:text-9xl font-black mt-6 tabular-nums">
+      5.0
+    </div>
+    <div id="coachWhistleBarWrap" class="hidden w-full max-w-md h-4 bg-black/30 rounded-full overflow-hidden mt-6 border border-black/40">
+      <div id="coachWhistleBar" class="h-full bg-slate-950 transition-none" style="width: 100%"></div>
+    </div>
+    <p id="overlayHint" class="mt-6 text-base md:text-xl font-bold opacity-90 max-w-md">
+      Yellow screen = Take your marks, Green + LED Flash = GO!
+    </p>
+    <button id="cancelStartBtn" data-i18n="cancelProc" class="mt-10 px-8 py-4 rounded-2xl bg-black/40 hover:bg-black/60 text-white font-bold border border-white/25 text-sm uppercase tracking-wider">
+      Cancel sequence
+    </button>
+  </div>
+
+  <!-- MODAL 1: CALIBRATION & SETTINGS -->
+  <div id="settingsModal" class="fixed inset-0 z-50 hidden bg-black/85 backdrop-blur-md flex items-center justify-center p-3 md:p-6">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-5 shadow-2xl flex flex-col gap-4 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 data-i18n="settingsTitle" class="text-lg font-black text-white uppercase tracking-wide">Calibration & Settings</h3>
+          <p data-i18n="settingsSubtitle" class="text-xs text-slate-400">100% full-width ROI zone, default threshold 3.0%</p>
+        </div>
+        <button id="closeSettingsBtn" data-i18n="closeBtn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs uppercase">Close</button>
+      </div>
+
+      <div class="grid grid-cols-2 gap-2.5">
+        <button id="switchCameraBtn" data-i18n="switchCam" class="py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 font-bold text-xs border border-slate-700 uppercase tracking-wider">
+          Camera Front / Back
+        </button>
+        <label class="cursor-pointer py-3 px-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 font-bold text-xs text-center flex items-center justify-center uppercase tracking-wider">
+          <span data-i18n="uploadVideo">Upload Test Video</span>
+          <input id="videoUploadInput" type="file" accept="video/*" class="hidden" />
+        </label>
+      </div>
+
+      <div class="bg-slate-950 rounded-2xl p-4 border border-slate-800 flex flex-col gap-4 text-xs">
+        <div>
+          <div class="flex justify-between mb-1">
+            <span data-i18n="prepTimeLabel" class="text-white font-bold uppercase tracking-wide">Prep countdown (before "Take your marks"):</span>
+            <strong id="prepTimeVal" class="text-emerald-400 text-sm">5 s</strong>
+          </div>
+          <p data-i18n="prepTimeHint" class="text-[11px] text-slate-400 mb-2">Applies to both Solo Race and Multi-Sync</p>
+          <input id="prepTimeSlider" type="range" min="2" max="20" step="1" value="5" class="w-full" />
+        </div>
+
+        <div class="border-t border-slate-800 pt-3 flex items-center justify-between">
+          <div>
+            <span data-i18n="ledFlashTitle" class="font-bold text-white block uppercase tracking-wide">LED Torch Flash on GO</span>
+            <span id="torchSupportLabel" data-i18n="ledFlashSub" class="text-[11px] text-slate-400">Works on rear camera (Android Chrome)</span>
+          </div>
+          <input id="enableTorchCheckbox" type="checkbox" checked class="w-5 h-5 accent-sky-400 rounded cursor-pointer" />
+        </div>
+        <button id="testTorchBtn" data-i18n="testLedBtn" class="w-full py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 font-bold border border-slate-700 uppercase tracking-wider">
+          Test LED Torch Flash
+        </button>
+      </div>
+
+      <div class="bg-slate-950 rounded-2xl p-4 border border-slate-800 flex flex-col gap-4 text-xs">
+        <div>
+          <div class="flex justify-between mb-1">
+            <span data-i18n="wallLineY" class="text-slate-300 font-semibold">Wall line position (Top–Bottom):</span>
+            <strong id="roiYVal" class="text-sky-400">50%</strong>
+          </div>
+          <input id="roiYSlider" type="range" min="10" max="80" value="50" class="w-full" />
+        </div>
+
+        <div>
+          <div class="flex justify-between mb-1">
+            <span data-i18n="zoneHeight" class="text-slate-300 font-semibold">Detection zone height:</span>
+            <strong id="roiHVal" class="text-sky-400">38%</strong>
+          </div>
+          <input id="roiHSlider" type="range" min="20" max="60" value="38" class="w-full" />
+        </div>
+
+        <div>
+          <div class="flex justify-between mb-1">
+            <span data-i18n="threshLabel" class="text-slate-300 font-semibold">Hand/Cap detection threshold (Default 3.0%):</span>
+            <strong id="threshVal" class="text-sky-400">3.0%</strong>
+          </div>
+          <input id="threshSlider" type="range" min="1.0" max="15.0" step="0.5" value="3.0" class="w-full" />
+        </div>
+
+        <div>
+          <div class="flex justify-between mb-1">
+            <span data-i18n="deadTimeLabel" class="text-slate-300 font-semibold">Dead-time (wave lockout after dive/turn):</span>
+            <strong id="deadTimeVal" class="text-amber-400">18 s</strong>
+          </div>
+          <input id="deadTimeSlider" type="range" min="3" max="40" step="1" value="18" class="w-full" />
+        </div>
+      </div>
+
+      <div class="bg-slate-950 rounded-2xl p-4 border border-slate-800 flex flex-col gap-2 text-xs">
+        <div class="flex items-center justify-between">
+          <span data-i18n="simModeLabel" class="font-bold text-slate-300">Test mode (video simulation):</span>
+          <span id="bufferStatusBadge" class="text-slate-400 tabular-nums">Buffer: 0 fr.</span>
+        </div>
+        <button id="forceArmBtn" data-i18n="forceArmBtn" class="w-full py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow">
+          Arm Camera Now (Test Touch)
+        </button>
+      </div>
+
+      <div class="bg-slate-950 rounded-2xl p-4 border border-slate-800 flex flex-col gap-2 text-xs">
+        <div class="flex items-center justify-between">
+          <span data-i18n="pwaCacheLabel" class="font-bold text-slate-300">PWA Offline Cache:</span>
+          <button id="hardReloadBtn" data-i18n="clearCacheBtn" class="px-3 py-1.5 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 font-bold uppercase">
+            Clear Cache & Reload
+          </button>
+        </div>
+      </div>
+
+      <button id="doneSettingsBtn" data-i18n="doneBtn" class="w-full py-3.5 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-sm uppercase tracking-wider">
+        Done
+      </button>
+    </div>
+  </div>
+
+  <!-- MODAL 2: PHOTO-FINISH FRAME EDITOR -->
+  <div id="frameEditorModal" class="fixed inset-0 z-50 hidden bg-black/90 backdrop-blur-md flex items-center justify-center p-3 md:p-6">
+    <div class="bg-slate-900 border border-slate-700 rounded-3xl max-w-xl w-full p-4 md:p-6 shadow-2xl flex flex-col gap-4 max-h-[95vh] overflow-y-auto">
+      <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+        <div>
+          <h3 id="modalTitle" class="text-lg font-black text-sky-400 uppercase">Photo-Finish Verification</h3>
+          <p data-i18n="photoFinishSub" class="text-xs text-slate-400">Scrub frame-by-frame to the exact moment of wall touch</p>
+        </div>
+        <button id="closeModalBtn" data-i18n="closeBtn" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs uppercase">Close</button>
+      </div>
+
+      <div class="relative rounded-2xl overflow-hidden bg-black border border-slate-700 aspect-[4/3] flex items-center justify-center">
+        <img id="modalFrameImg" src="" alt="Buffered frame" class="w-full h-full object-contain" />
+        <div class="absolute top-3 left-3 bg-black/80 px-3 py-1.5 rounded-xl border border-white/15">
+          <span data-i18n="frameTimeLabel" class="text-[10px] text-slate-400 block uppercase font-bold">Frame timestamp:</span>
+          <span id="modalFrameTime" class="text-2xl font-black text-emerald-400 tabular-nums">00:00.00</span>
+        </div>
+        <div id="modalTriggerBadge" class="absolute top-3 right-3 bg-amber-400 text-slate-950 text-xs font-black px-2.5 py-1 rounded-lg">
+          AI TRIGGER
+        </div>
+        <div class="absolute bottom-2 right-2 bg-black/75 px-2.5 py-1 rounded-lg text-[11px] text-slate-300 tabular-nums">
+          ROI: <span id="modalFrameScore">0%</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-950 rounded-2xl p-3.5 border border-slate-800 flex flex-col gap-3">
+        <div class="flex items-center justify-between text-xs text-slate-300">
+          <span id="modalFrameIndexLabel" class="font-bold">Frame: 15 / 30</span>
+          <span id="modalTimeDeltaLabel" class="font-mono font-bold text-sky-400">Delta: 0.00 s</span>
+        </div>
+
+        <input id="modalFrameSlider" type="range" min="0" max="29" value="15" class="w-full h-2 bg-slate-700 rounded-lg cursor-pointer" />
+
+        <div class="grid grid-cols-4 gap-2 pt-1">
+          <button id="stepBack5Btn" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold">-5 fr</button>
+          <button id="stepBack1Btn" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold">-1 fr</button>
+          <button id="stepFwd1Btn" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold">+1 fr</button>
+          <button id="stepFwd5Btn" class="py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold">+5 fr</button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-end gap-2.5">
+        <button id="resetTriggerFrameBtn" data-i18n="resetAiBtn" class="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-slate-300 uppercase">
+          Reset to AI
+        </button>
+        <button id="saveCorrectedFrameBtn" data-i18n="applyFrameBtn" class="flex-1 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg">
+          Apply Frame & Recalculate
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- HEADER & TOP NAVIGATION -->
+  <header class="bg-slate-950/95 border-b border-slate-800/80 sticky top-0 z-30 backdrop-blur">
+    <div class="max-w-xl mx-auto px-4 pt-2.5 pb-2 flex items-center justify-between">
+      <div class="flex items-center gap-2.5">
+        <span id="sensorStateDot" class="w-3 h-3 rounded-full bg-slate-500"></span>
+        <div>
+          <h1 class="font-black text-base tracking-tight leading-none">SWIMTIMER <span class="text-emerald-400 font-bold text-xs">v10.0</span></h1>
+          <span id="sensorStateText" class="text-[11px] font-bold text-slate-400 block mt-0.5">Ready to start</span>
+        </div>
+      </div>
+
+      <div class="flex items-center gap-1.5">
+        <button id="installPwaBtn" data-i18n="installBtn" class="hidden text-xs font-black bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-2 rounded-xl uppercase tracking-wider shadow">
+          Install
+        </button>
+        <span id="syncHeaderBadge" class="hidden text-[11px] font-extrabold px-2.5 py-1.5 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 uppercase">
+          Room: ----
+        </span>
+        <button id="langToggleBtn" class="px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-black text-sky-400 uppercase">
+          EN | PL
+        </button>
+        <button id="openSettingsBtn" data-i18n="settingsBtn" class="px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 text-xs font-bold text-slate-200 uppercase tracking-wider">
+          Settings
+        </button>
+      </div>
+    </div>
+
+    <div class="max-w-xl mx-auto px-4 pb-2.5">
+      <div class="grid grid-cols-3 p-1 bg-slate-900 rounded-2xl border border-slate-800 gap-1">
+        <button id="navTimerBtn" data-i18n="tab1" class="py-2.5 rounded-xl bg-sky-500 text-slate-950 font-black text-xs uppercase tracking-wider transition">
+          1. Race Timer
+        </button>
+        <button id="navLapBtn" data-i18n="tab2" class="py-2.5 rounded-xl text-slate-400 hover:text-white font-bold text-xs uppercase tracking-wider transition">
+          2. Lap Counter
+        </button>
+        <button id="navSyncBtn" data-i18n="tab3" class="py-2.5 rounded-xl text-slate-400 hover:text-white font-bold text-xs uppercase tracking-wider transition">
+          3. Multi-Sync
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- MAIN CONTENT -->
+  <main class="max-w-xl w-full mx-auto px-4 pt-3 flex-1 flex flex-col gap-3">
+
+    <section id="cameraCard" class="bg-slate-900/90 border border-slate-800 rounded-3xl p-2.5 shadow-lg">
+      <div class="relative rounded-2xl overflow-hidden bg-black aspect-[16/9] border border-slate-800">
+        <video id="cameraVideo" autoplay playsinline muted class="w-full h-full object-cover"></video>
+        <canvas id="overlayCanvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+
+        <div class="absolute top-2.5 left-2.5 right-2.5 flex items-center justify-between pointer-events-none">
+          <div class="bg-black/75 backdrop-blur px-2.5 py-1 rounded-lg border border-white/10 text-[11px] font-bold text-slate-200 tabular-nums">
+            <span data-i18n="zoneFill">Zone (100% width):</span> <strong id="skinPercentLabel" class="text-sky-400">0.0%</strong> / <span id="thresholdValueLabel">3.0%</span>
+          </div>
+          <div class="flex items-center gap-1.5">
+            <span id="torchBadge" class="bg-black/75 backdrop-blur px-2.5 py-1 rounded-lg border border-white/10 text-[10px] font-bold text-slate-400 uppercase">
+              LED: Auto
+            </span>
+            <span id="wakeLockBadge" class="bg-black/75 backdrop-blur px-2.5 py-1 rounded-lg border border-white/10 text-[10px] font-bold text-slate-400 uppercase">
+              Screen
+            </span>
+          </div>
+        </div>
+
+        <div class="absolute bottom-0 inset-x-0 h-1.5 bg-slate-900/90">
+          <div id="skinProgressBar" class="h-full bg-sky-400 transition-all duration-75" style="width: 0%"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- VIEW 1: SOLO RACE TIMER -->
+    <section id="viewTimer" class="flex flex-col gap-3">
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl flex flex-col gap-4">
+        <div class="grid grid-cols-4 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+          <button data-dist="50" class="dist-btn py-2.5 rounded-xl text-sm font-black bg-sky-500 text-slate-950">50 m</button>
+          <button data-dist="100" class="dist-btn py-2.5 rounded-xl text-sm font-black text-slate-400 hover:text-white">100 m</button>
+          <button data-dist="200" class="dist-btn py-2.5 rounded-xl text-sm font-black text-slate-400 hover:text-white">200 m</button>
+          <button data-dist="400" class="dist-btn py-2.5 rounded-xl text-sm font-black text-slate-400 hover:text-white">400 m</button>
+        </div>
+
+        <div class="text-center py-6 bg-slate-950 rounded-2xl border border-slate-800/90 flex flex-col items-center justify-center">
+          <div id="raceProgressLabel" class="text-[11px] font-extrabold uppercase tracking-widest text-sky-400 mb-1">
+            DISTANCE 50 M • PREP: 5 S
+          </div>
+          <div id="mainTimerDisplay" class="text-7xl sm:text-8xl font-black tabular-nums tracking-tight text-white leading-none my-1">
+            00:00.00
+          </div>
+          <div id="deadZoneCountdownBar" class="mt-2 px-3 py-1 rounded-full bg-amber-500/15 border border-amber-500/30 text-xs font-bold text-amber-300 hidden">
+            <span data-i18n="waveLockout">Wave lockout:</span> <span id="deadZoneSecLeft">18.0</span> s
+          </div>
+        </div>
+
+        <button id="startProcedureBtn" data-i18n="startSoloBtn" class="w-full py-5 rounded-2xl bg-sky-500 hover:bg-sky-400 active:scale-[0.99] text-slate-950 font-black text-base uppercase tracking-wider shadow-lg transition">
+          START RACE (Yellow -> Green + LED)
+        </button>
+
+        <div class="grid grid-cols-2 gap-2.5">
+          <button id="manualSplitBtn" data-i18n="manualSplitBtn" disabled class="py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 disabled:opacity-35 text-xs font-extrabold uppercase tracking-wider border border-slate-700">
+            Manual Split / Stop
+          </button>
+          <button id="resetRaceBtn" data-i18n="resetBtn" class="py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-xs font-extrabold uppercase tracking-wider text-rose-400 border border-slate-700">
+            Reset Timer
+          </button>
+        </div>
+      </div>
+
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl">
+        <div class="flex items-center justify-between mb-3">
+          <h2 data-i18n="splitsTitle" class="text-sm font-black text-white uppercase tracking-wider">Splits & Photo-Finish</h2>
+          <span data-i18n="splitsHint" class="text-[11px] text-slate-400">Tap Frame to verify exact wall touch</span>
+        </div>
+
+        <div id="splitsEmptyState" data-i18n="splitsEmpty" class="text-center py-6 text-xs text-slate-500 border border-dashed border-slate-800 rounded-2xl">
+          No splits recorded in this session.
+        </div>
+
+        <div id="splitsListContainer" class="hidden flex-col gap-2.5"></div>
+      </div>
+    </section>
+
+    <!-- VIEW 2: LAP COUNTER -->
+    <section id="viewLapCounter" class="hidden flex-col gap-3">
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl flex flex-col gap-4">
+        <div class="grid grid-cols-2 gap-2">
+          <div class="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+            <span data-i18n="lapStepLabel" class="text-[10px] font-bold uppercase text-slate-400 block">Step per wall touch</span>
+            <select id="lapStepSelect" class="w-full bg-transparent text-sm font-black text-sky-400 focus:outline-none mt-0.5">
+              <option value="50" class="bg-slate-900">+50 m (2 lengths)</option>
+              <option value="25" class="bg-slate-900">+25 m (1 length)</option>
+            </select>
+          </div>
+          <div class="bg-slate-950 p-2.5 rounded-2xl border border-slate-800">
+            <span data-i18n="lapGoalLabel" class="text-[10px] font-bold uppercase text-slate-400 block">Target distance (m)</span>
+            <input id="lapTargetMetersInput" type="number" value="400" step="50" min="50" class="w-full bg-transparent text-sm font-black text-white focus:outline-none mt-0.5" />
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl py-7 px-4 text-center flex flex-col items-center justify-center">
+          <span data-i18n="totalDistHeader" class="text-xs font-extrabold uppercase tracking-widest text-slate-400">COMPLETED DISTANCE</span>
+          <div class="flex items-baseline gap-2 my-1">
+            <span id="lapMetersDisplay" class="text-8xl font-black text-emerald-400 tabular-nums leading-none">0</span>
+            <span class="text-3xl font-black text-slate-400">m</span>
+          </div>
+          <div class="text-sm font-bold text-slate-300 mt-2">
+            <span data-i18n="lengths25">Lengths (25m):</span> <strong id="lapCountDisplay" class="text-white">0</strong>
+            <span class="mx-2 text-slate-600">•</span>
+            <span data-i18n="timeLabel">Time:</span> <strong id="lapTotalTimeDisplay" class="text-sky-400 tabular-nums">00:00.00</strong>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2.5">
+          <button id="startLapSessionBtn" data-i18n="startLapBtn" class="col-span-2 py-4 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-sm uppercase tracking-wider shadow-lg">
+            Start Lap Counter
+          </button>
+          <button id="resetLapSessionBtn" data-i18n="resetShort" class="py-4 rounded-2xl bg-slate-800 hover:bg-slate-700 text-rose-400 font-extrabold text-xs uppercase tracking-wider border border-slate-700">
+            Reset
+          </button>
+        </div>
+
+        <div id="lapHistoryList" class="flex flex-col gap-2"></div>
+      </div>
+    </section>
+
+    <!-- VIEW 3: MULTI-LANE P2P SYNC & COACH -->
+    <section id="viewMultiSync" class="hidden flex-col gap-3">
+      <div class="bg-slate-900 border border-slate-800 rounded-3xl p-4 shadow-xl flex flex-col gap-4">
+        <div class="flex items-center justify-between">
+          <div>
+            <h2 data-i18n="syncTitle" class="text-base font-black text-white uppercase tracking-wide">Multi-Lane Sync (P2P)</h2>
+            <p data-i18n="syncSub" class="text-xs text-slate-400 mt-0.5">
+              Connect 2+ phones with the same room code for millisecond-accurate simultaneous starts.
+            </p>
+          </div>
+        </div>
+
+        <div>
+          <div class="flex items-center justify-between mb-1.5">
+            <span data-i18n="sharedDistLabel" class="text-[11px] font-bold uppercase tracking-wider text-slate-400">Shared Race Distance:</span>
+            <span id="syncPrepBadge" class="text-[11px] font-bold text-emerald-400 uppercase">Prep: 5 s</span>
+          </div>
+          <div class="grid grid-cols-4 gap-1.5 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+            <button data-dist="50" class="dist-btn py-2.5 rounded-xl text-sm font-black bg-sky-500 text-slate-950">50 m</button>
+            <button data-dist="100" class="dist-btn py-2.5 rounded-xl text-sm font-black text-slate-400 hover:text-white">100 m</button>
+            <button data-dist="200" class="dist-btn py-2.5 rounded-xl text-sm font-black text-slate-400 hover:text-white">200 m</button>
+            <button data-dist="400" class="dist-btn py-2.5 rounded-xl text-sm font-black text-slate-400 hover:text-white">400 m</button>
+          </div>
+        </div>
+
+        <div>
+          <span data-i18n="deviceRoleLabel" class="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1.5">Device Role:</span>
+          <div class="grid grid-cols-2 gap-2 bg-slate-950 p-1.5 rounded-2xl border border-slate-800">
+            <button id="roleSwimmerBtn" data-i18n="roleSwimmer" class="py-3 rounded-xl text-xs font-black uppercase tracking-wider bg-sky-500 text-slate-950 transition">
+              Swimmer Phone (Block)
+            </button>
+            <button id="roleCoachBtn" data-i18n="roleCoach" class="py-3 rounded-xl text-xs font-black uppercase tracking-wider text-slate-400 hover:text-white transition">
+              Coach Phone (Sees Timer)
+            </button>
+          </div>
+          <p id="roleDescriptionText" class="text-[11px] text-slate-400 mt-1.5">
+            Swimmer Mode: on the yellow "Take your marks" screen, the exact time to GO is hidden.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+          <div>
+            <label data-i18n="roomCodeLabel" class="text-[11px] font-bold text-slate-400 uppercase block mb-1">Room Code</label>
+            <input id="syncRoomCodeInput" type="text" maxlength="6" value="2550" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-base font-black tracking-widest text-center text-sky-400 uppercase" />
+          </div>
+          <div>
+            <label data-i18n="laneNameLabel" class="text-[11px] font-bold text-slate-400 uppercase block mb-1">Your Name / Lane</label>
+            <input id="syncSwimmerNameInput" type="text" maxlength="16" value="Lane 1" class="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-sm font-bold text-center text-white" />
+          </div>
+          <div class="flex items-end">
+            <button id="connectSyncRoomBtn" data-i18n="connectRoomBtn" class="w-full py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-black text-xs uppercase tracking-wider shadow">
+              Connect Room
+            </button>
+          </div>
+        </div>
+
+        <div id="syncStatusBox" class="px-3.5 py-2.5 rounded-2xl bg-slate-950 border border-slate-800 flex items-center justify-between text-xs">
+          <span id="syncConnectionLabel" class="text-slate-400 font-semibold">Status: Disconnected (Local mode)</span>
+          <span id="syncLatencyLabel" class="text-slate-500 font-mono text-[11px]">Synced: 0 dev.</span>
+        </div>
+
+        <div id="coachControlPanel" class="bg-slate-950 border-2 border-indigo-500/40 rounded-2xl p-4 flex flex-col gap-3">
+          <div class="flex items-center justify-between">
+            <span data-i18n="starterConsole" class="text-xs font-black uppercase tracking-wider text-indigo-300">Shared Starter Console</span>
+            <span id="syncDistSummary" class="text-[11px] font-bold text-sky-400 uppercase">Distance: 50 m</span>
+          </div>
+
+          <button id="coachAutoSequenceBtn" data-i18n="autoStartAllBtn" class="w-full py-4 rounded-2xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs sm:text-sm uppercase tracking-wider shadow-lg transition">
+            AUTO-START ALL (Prep -> Yellow -> Green + LED)
+          </button>
+
+          <div class="grid grid-cols-2 gap-2.5 pt-1">
+            <button id="coachMarksBtn" data-i18n="manualMarksBtn" class="py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-black text-xs uppercase tracking-wider shadow">
+              1. Manual: ON MARKS
+            </button>
+            <button id="coachGoBtn" data-i18n="manualGoBtn" class="py-3.5 rounded-2xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs uppercase tracking-wider shadow">
+              2. Manual: GO + LED
+            </button>
+          </div>
+        </div>
+
+        <div class="bg-slate-950 border border-slate-800 rounded-2xl p-3 flex items-center justify-between">
+          <div>
+            <span data-i18n="yourLocalTimer" class="text-[10px] font-bold uppercase text-slate-400 block">Your Net Stopwatch & Photo-Finish</span>
+            <span id="syncLocalTimerDisplay" class="text-2xl font-black text-white tabular-nums">00:00.00</span>
+          </div>
+          <button id="goToOwnSplitsBtn" data-i18n="viewMySplitsBtn" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-bold text-sky-300 uppercase">
+            View My Splits
+          </button>
+        </div>
+
+        <div class="border-t border-slate-800 pt-3">
+          <div class="flex items-center justify-between mb-2">
+            <h3 data-i18n="liveBoardTitle" class="text-xs font-black uppercase tracking-wider text-slate-300">Live Room Leaderboard</h3>
+            <button id="clearRoomBoardBtn" data-i18n="clearBoardBtn" class="text-[11px] font-bold text-slate-400 hover:text-white uppercase">Clear Board</button>
+          </div>
+          <div id="multiSwimmersBoard" class="flex flex-col gap-2">
+            <div data-i18n="boardEmpty" class="text-center py-4 text-xs text-slate-500 border border-dashed border-slate-800 rounded-xl">
+              Connect phones with the same room code to see live splits across lanes.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Main ES6 Module Entrypoint -->
+  <script type="module" src="./js/app.js"></script>
+</body>
+</html>
